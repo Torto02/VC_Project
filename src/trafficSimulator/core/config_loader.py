@@ -40,10 +40,32 @@ class ConfigLoader:
         for gen_conf in config.get("vehicle_generators", []):
             rate = gen_conf.get("vehicle_rate", 10)
             vehicles = []
+            
             for veh_conf in gen_conf.get("vehicles", []):
                 weight = veh_conf[0]
-                specs = veh_conf[1]
-                # Assicuriamoci che specs abbia un path valido (usa indici numerici per ora)
+                specs = veh_conf[1] # Dizionario con le proprietà del veicolo
+                
+                # --- MODIFICA QUI ---
+                # Caso 1: Path esplicito (lista di indici) -> Già gestito
+                if "path" in specs:
+                    pass # Usa quello che c'è
+                
+                # Caso 2: Navigazione automatica (Start ID -> End ID)
+                elif "start_road" in specs and "end_road" in specs:
+                    start_id = specs["start_road"]
+                    end_id = specs["end_road"]
+                    
+                    # Calcoliamo il percorso usando la simulazione
+                    calculated_path = sim.find_shortest_path(start_id, end_id)
+                    
+                    if not calculated_path:
+                         print(f"Warning: No path found between {start_id} and {end_id}")
+                         # Assegna un path vuoto o gestisci l'errore
+                         specs['path'] = [] 
+                    else:
+                        specs['path'] = calculated_path
+                        print(f"Path calculated for {start_id}->{end_id}: {calculated_path}")
+
                 vehicles.append((weight, specs))
             
             sim.create_vehicle_generator(vehicle_rate=rate, vehicles=vehicles)

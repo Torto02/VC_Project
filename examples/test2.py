@@ -1,16 +1,8 @@
-from trafficSimulator import *
-sim = Simulation()
+import trafficSimulator as ts
 
+loader = ts.ConfigLoader()
+sim, config = loader.load_from_file('./examples/test_navigation.json')
 
-# Strada normale
-sim.create_segment((0, 0), (100, 0), category="general")
-
-# Corsia preferenziale Bus (sarà rossa)
-sim.create_segment((0, 5), (100, 5), category="bus")
-
-# Strada sterrata (sarà marrone)
-sim.create_segment((0, 10), (100, 10), category="dirt")
-
-win = Window(sim)
+win = ts.Window(sim)
 win.run()
 win.show()

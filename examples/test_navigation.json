@@ -1,0 +1,70 @@
+{
+  "window": {
+    "title": "Test Shortest Path",
+    "width": 1280,
+    "height": 720
+  },
+  "segments": [
+    {
+      "id": "seg_start",
+      "type": "line",
+      "start": [0, 0],
+      "end": [30, 0],
+      "category": "general"
+    },
+
+    {
+      "id": "path_short",
+      "type": "line",
+      "start": [30, 0],
+      "end": [130, 0],
+      "category": "general"
+    },
+
+    {
+      "id": "path_long_1",
+      "type": "line",
+      "start": [30, 0],
+      "end": [30, 40],
+      "category": "bus"
+    },
+    {
+      "id": "path_long_2",
+      "type": "line",
+      "start": [30, 40],
+      "end": [130, 40],
+      "category": "bus"
+    },
+    {
+      "id": "path_long_3",
+      "type": "line",
+      "start": [130, 40],
+      "end": [130, 0],
+      "category": "bus"
+    },
+
+    {
+      "id": "seg_end",
+      "type": "line",
+      "start": [130, 0],
+      "end": [160, 0],
+      "category": "general"
+    }
+  ],
+  "vehicle_generators": [
+    {
+      "vehicle_rate": 15,
+      "vehicles": [
+        [
+          1,
+          {
+            "vehicle_class": "car",
+            "v_max": 20,
+            "start_road": "seg_start",
+            "end_road": "path_long_3"
+          }
+        ]
+      ]
+    }
+  ]
+}

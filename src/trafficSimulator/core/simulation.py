@@ -5,6 +5,8 @@ from .geometry.quadratic_curve import QuadraticCurve
 from .geometry.cubic_curve import CubicCurve
 from .geometry.segment import Segment
 from .vehicle import Vehicle
+from scipy.spatial import distance
+import heapq # Per l'algoritmo di Dijkstra
 
 
 class Simulation:
@@ -64,41 +66,81 @@ class Simulation:
         for _ in range(steps):
             self.update()
 
-    # def update(self):
-    #     # Update vehicles
-    #     for segment in self.segments:
-    #         if len(segment.vehicles) != 0:
-    #             self.vehicles[segment.vehicles[0]].update(None, self.dt)
-    #         for i in range(1, len(segment.vehicles)):
-    #             self.vehicles[segment.vehicles[i]].update(self.vehicles[segment.vehicles[i-1]], self.dt)
+    def _build_topology(self):
+        """
+        Costruisce il grafo delle connessioni tra segmenti basandosi sulla geometria.
+        Due segmenti sono connessi se la fine di uno coincide con l'inizio dell'altro.
+        """
+        self.adjacency_list = {i: [] for i in range(len(self.segments))}
+        self.segment_id_map = {} # Mappa da ID stringa a indice numerico
 
-    #     # Check roads for out of bounds vehicle
-    #     for segment in self.segments:
-    #         # If road has no vehicles, continue
-    #         if len(segment.vehicles) == 0: continue
-    #         # If not
-    #         vehicle_id = segment.vehicles[0]
-    #         vehicle = self.vehicles[vehicle_id]
-    #         # If first vehicle is out of road bounds
-    #         if vehicle.x >= segment.get_length():
-    #             # If vehicle has a next road
-    #             if vehicle.current_road_index + 1 < len(vehicle.path):
-    #                 # Update current road to next road
-    #                 vehicle.current_road_index += 1
-    #                 # Add it to the next road
-    #                 next_road_index = vehicle.path[vehicle.current_road_index]
-    #                 self.segments[next_road_index].vehicles.append(vehicle_id)
-    #             # Reset vehicle properties
-    #             vehicle.x = 0
-    #             # In all cases, remove it from its road
-    #             segment.vehicles.popleft() 
+        # 1. Costruisci la mappa degli ID
+        for i, seg in enumerate(self.segments):
+            if hasattr(seg, 'id_segment') and seg.id_segment:
+                self.segment_id_map[seg.id_segment] = i
+        
+        # 2. Trova le connessioni (N^2, ma ok per simulazioni piccole)
+        # Tolleranza di 0.1 metri per considerare i punti "uniti"
+        tolerance = 0.5 
+        
+        for i, seg_a in enumerate(self.segments):
+            end_point = seg_a.points[-1]
+            
+            for j, seg_b in enumerate(self.segments):
+                if i == j: continue # Non collegarsi a se stessi
+                
+                start_point = seg_b.points[0]
+                dist = distance.euclidean(end_point, start_point)
+                
+                if dist < tolerance:
+                    self.adjacency_list[i].append(j)
+    
+    def find_shortest_path(self, start_id, end_id):
+        """
+        Trova il percorso più breve tra due segmenti usando i loro ID stringa.
+        Restituisce una lista di indici [idx1, idx2, idx3...]
+        """
+        # Costruiamo la topologia se non esiste o se sono stati aggiunti segmenti
+        # Nota: per efficienza potresti farlo solo una volta alla fine della creazione
+        self._build_topology()
 
-    #     # Update vehicle generators
-    #     for gen in self.vehicle_generator:
-    #         gen.update(self)
-    #     # Increment time
-    #     self.t += self.dt
-    #     self.frame_count += 1
+        if start_id not in self.segment_id_map:
+            raise ValueError(f"Start segment ID '{start_id}' not found.")
+        if end_id not in self.segment_id_map:
+            raise ValueError(f"End segment ID '{end_id}' not found.")
+
+        start_idx = self.segment_id_map[start_id]
+        end_idx = self.segment_id_map[end_id]
+
+        # Dijkstra Algorithm
+        # coda: (costo, nodo_corrente, percorso_fino_a_qui)
+        queue = [(0, start_idx, [])]
+        visited = set()
+        
+        while queue:
+            (cost, current_idx, path) = heapq.heappop(queue)
+            
+            if current_idx in visited:
+                continue
+            visited.add(current_idx)
+
+            # Percorso aggiornato
+            path = path + [current_idx]
+
+            # Trovato!
+            if current_idx == end_idx:
+                return path
+
+            # Esplora vicini
+            for neighbor in self.adjacency_list[current_idx]:
+                if neighbor not in visited:
+                    # Il costo è la lunghezza del segmento (cerchiamo il percorso più corto in metri)
+                    # Oppure 1 (per il minor numero di segmenti)
+                    weight = self.segments[neighbor].get_length()
+                    heapq.heappush(queue, (cost + weight, neighbor, path))
+
+        print(f"Nessun percorso trovato tra {start_id} e {end_id}")
+        return []
 
     def update(self):
         # 1. Aggiorna e Rimuovi ostacoli scaduti
