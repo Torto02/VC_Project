@@ -7,10 +7,14 @@ from math import sqrt
 from scipy.integrate import quad
 
 class Segment(ABC):
-    def __init__(self, points):
+    def __init__(self, points, category="general", max_speed=50, id_segment=None):
         self.points = points
+        # Nuovi attributi
+        self.category = category        # Es: "general", "bus", "taxi"
+        self.max_speed = max_speed      # Limite velocità (es. km/h o m/s)
+        self.id_segment = id_segment    # Identificativo mnemonico (stringa)
+        
         self.vehicles = deque()
-
         self.set_functions()
         
 

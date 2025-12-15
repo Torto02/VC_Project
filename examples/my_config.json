@@ -1,0 +1,63 @@
+{
+  "window": {
+    "title": "Simulation from JSON",
+    "width": 1280,
+    "height": 720
+  },
+  "segments": [
+    {
+      "type": "line",
+      "start": [-100, 4],
+      "end": [100, 4],
+      "category": "general",
+      "max_speed": 50,
+      "id": "main_road_east"
+    },
+    {
+      "type": "line",
+      "start": [100, -4],
+      "end": [-100, -4],
+      "category": "bus",
+      "max_speed": 30,
+      "id": "bus_lane_west"
+    }
+  ],
+  "environment": [
+    {
+      "type": "building",
+      "x": 0,
+      "y": 20,
+      "width": 40,
+      "height": 20,
+      "color": [150, 150, 150],
+      "shape": "rectangle"
+    },
+    {
+      "type": "tree",
+      "x": -50,
+      "y": 15,
+      "width": 5,
+      "height": 5,
+      "color": [34, 139, 34],
+      "shape": "circle"
+    }
+  ],
+  "vehicle_generators": [
+    {
+      "vehicle_rate": 20,
+      "vehicles": [
+        [5, { "vehicle_class": "car", "path": [0], "v_max": 20 }],
+        [
+          1,
+          {
+            "vehicle_class": "bus",
+            "path": [1],
+            "l": 10,
+            "w": 2.6,
+            "v_max": 15
+          }
+        ]
+      ]
+    }
+  ]
+}

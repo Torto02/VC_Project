@@ -1,9 +1,24 @@
 import dearpygui.dearpygui as dpg
 
-
 class Window:
     def __init__(self, simulation):
         self.simulation = simulation
+
+        # --- AGGIUNGI QUESTO BLOCCO ---
+        self.ROAD_COLORS = {
+            "general": (180, 180, 220), # Grigio chiaro
+            "bus": (255, 100, 100),     # Rosso
+            "taxi": (255, 255, 100),    # Giallo
+            "dirt": (139, 69, 19)       # Marrone
+        }
+
+        # --- AGGIUNGI QUESTO ---
+        self.VEHICLE_COLORS = {
+            "car": (0, 0, 255),       # Blu
+            "truck": (200, 100, 0),   # Arancione scuro
+            "bus": "#7F0303",     # Giallo/Oro
+            "motorcycle": (0, 255, 0) # Verde
+        }
 
         self.zoom = 7
         self.offset = (0, 0)
@@ -55,7 +70,6 @@ class Window:
                 dpg.add_theme_color(dpg.mvThemeCol_Button, (150, 5, 18))
                 dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (207, 12, 23))
                 dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (120, 2, 10))
-
 
     def create_windows(self):
         dpg.add_window(
@@ -145,9 +159,7 @@ class Window:
         dpg.set_value("TimeStatus", f"{self.simulation.t:.2f}s")
         dpg.set_value("FrameStatus", self.simulation.frame_count)
 
-        
-
-
+    
     def mouse_down(self):
         if not self.is_dragging:
             if dpg.is_item_hovered("MainWindow"):
@@ -265,8 +277,39 @@ class Window:
 
     def draw_segments(self):
         for segment in self.simulation.segments:
-            dpg.draw_polyline(segment.points, color=(180, 180, 220), thickness=3.5*self.zoom, parent="Canvas")
-            #dpg.draw_arrow(segment.points[-1], segment.points[-2], thickness=0, size=2, color=(0, 0, 0, 50), parent="Canvas")
+            # 1. Colore strada
+            color = self.ROAD_COLORS.get(segment.category, (180, 180, 220))
+            
+            # Nota: thickness è in pixel, quindi qui *self.zoom va bene se vogliamo 
+            # che la strada sembri più larga quando zoomiamo (effetto realistico).
+            dpg.draw_polyline(segment.points, color=color, thickness=3.5*self.zoom, parent="Canvas")
+            
+            # 2. Freccia direzione
+            # Calcoliamo posizione e angolo a metà strada
+            mid_t = 0.5
+            p = segment.get_point(mid_t) 
+            h = segment.get_heading(mid_t) 
+            
+            arrow_node = dpg.add_draw_node(parent="Canvas")
+            
+            # CORREZIONE: Dimensione fissa in unità mondo (es. 2 metri)
+            # Rimuoviamo "* self.zoom" perché il nodo è già scalato.
+            size = 2.0  
+            
+            dpg.draw_arrow(
+                p1=(size, 0), 
+                p2=(-size, 0), 
+                thickness=0.5, # Spessore linea freccia
+                size=size,     # Dimensione punta
+                color=(50, 50, 50), 
+                parent=arrow_node
+            )
+            
+            # Applichiamo rotazione e traslazione locale
+            translate = dpg.create_translation_matrix(p)
+            rotate = dpg.create_rotation_matrix(h, [0, 0, 1])
+            dpg.apply_transform(arrow_node, translate * rotate)
+
 
     def draw_vehicles(self):
         for segment in self.simulation.segments:
@@ -277,18 +320,78 @@ class Window:
                 position = segment.get_point(progress)
                 heading = segment.get_heading(progress)
 
+                # Recupera il colore in base alla classe
+                color = self.VEHICLE_COLORS.get(vehicle.vehicle_class, (0, 0, 255))
+
                 node = dpg.add_draw_node(parent="Canvas")
+                
+                # Disegna il veicolo
+                # Usiamo vehicle.l per la lunghezza e vehicle.w per lo spessore (thickness)
+                # Nota: thickness in dpg è in pixel/unità schermo, lo scaliamo con lo zoom
+                # Se vehicle.w non è settato (vecchi test), usiamo un default
+                width = getattr(vehicle, 'w', 2) 
+
                 dpg.draw_line(
                     (0, 0),
                     (vehicle.l, 0),
-                    thickness=1.76*self.zoom,
-                    color=(0, 0, 255),
+                    thickness=width * self.zoom * 0.8, # 0.8 è un fattore di scala visiva
+                    color=color,
                     parent=node
                 )
 
                 translate = dpg.create_translation_matrix(position)
                 rotate = dpg.create_rotation_matrix(heading, [0, 0, 1])
                 dpg.apply_transform(node, translate*rotate)
+
+    def draw_obstacles(self):
+        for obs in self.simulation.obstacles:
+            segment = self.simulation.segments[obs.segment_id]
+            
+            # Calcoliamo la posizione cartesiana lungo la curva
+            # obs.x è la distanza in metri, dobbiamo convertirla in progresso (0.0 - 1.0)
+            progress = obs.x / segment.get_length()
+            
+            # Se l'ostacolo è oltre la fine della strada (errore arrotondamento), limitiamolo
+            if progress > 1.0: progress = 1.0
+            if progress < 0.0: progress = 0.0
+
+            position = segment.get_point(progress)
+            heading = segment.get_heading(progress)
+
+            # Creiamo un nodo per ruotare l'ostacolo allineandolo alla strada
+            node = dpg.add_draw_node(parent="Canvas")
+            
+            # Disegniamo una "X" o un blocco
+            size = obs.width
+            color = obs.color
+            
+            # Corpo ostacolo
+            dpg.draw_rectangle(
+                (-size/2, -size/2), (size/2, size/2),
+                color=color, fill=color, parent=node
+            )
+            
+            # Trasformazioni
+            translate = dpg.create_translation_matrix(position)
+            rotate = dpg.create_rotation_matrix(heading, [0, 0, 1])
+            dpg.apply_transform(node, translate*rotate)
+    
+    def draw_static_objects(self):
+        for obj in self.simulation.static_objects:
+            # CORREZIONE: Disegniamo in coordinate MONDO (World Coordinates).
+            # La trasformazione del Canvas gestirà automaticamente zoom e posizione.
+            
+            if obj.shape == "rectangle":
+                # Calcoliamo i due angoli del rettangolo nel mondo
+                p1 = (obj.x - obj.width/2, obj.y - obj.height/2)
+                p2 = (obj.x + obj.width/2, obj.y + obj.height/2)
+                dpg.draw_rectangle(p1, p2, color=obj.color, fill=obj.color, parent="Canvas")
+                
+            elif obj.shape == "circle":
+                # Centro e raggio nel mondo
+                center = (obj.x, obj.y)
+                radius = obj.width / 2 # Usiamo la larghezza come diametro
+                dpg.draw_circle(center, radius, color=obj.color, fill=obj.color, parent="Canvas")
 
     def apply_transformation(self):
         screen_center = dpg.create_translation_matrix([self.canvas_width/2, self.canvas_height/2, -0.01])
@@ -312,6 +415,8 @@ class Window:
         self.draw_grid(unit=10)
         self.draw_grid(unit=50)
         self.draw_segments()
+        self.draw_static_objects()
+        self.draw_obstacles() 
         self.draw_vehicles()
 
         # Apply transformations

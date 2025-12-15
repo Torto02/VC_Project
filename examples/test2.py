@@ -1,9 +1,16 @@
-import trafficSimulator as ts
+from trafficSimulator import *
+sim = Simulation()
 
-sim = ts.Simulation()
 
-sim.create_quadratic_bezier_curve((0, 0), (50, 0), (50, 50))
-sim.create_vehicle(path=[0])
+# Strada normale
+sim.create_segment((0, 0), (100, 0), category="general")
 
-win = ts.Window(sim)
+# Corsia preferenziale Bus (sarà rossa)
+sim.create_segment((0, 5), (100, 5), category="bus")
+
+# Strada sterrata (sarà marrone)
+sim.create_segment((0, 10), (100, 10), category="dirt")
+
+win = Window(sim)
+win.run()
 win.show()
