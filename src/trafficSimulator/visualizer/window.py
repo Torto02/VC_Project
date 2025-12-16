@@ -1,4 +1,5 @@
 import dearpygui.dearpygui as dpg
+import numpy as np
 
 class Window:
     def __init__(self, simulation):
@@ -393,6 +394,65 @@ class Window:
                 radius = obj.width / 2 # Usiamo la larghezza come diametro
                 dpg.draw_circle(center, radius, color=obj.color, fill=obj.color, parent="Canvas")
 
+    def draw_traffic_lights(self):
+        for tl in self.simulation.traffic_lights:
+            segment = self.simulation.segments[tl.segment_id]
+            
+            # 1. Calcolo posizione sulla curva
+            progress = tl.x / segment.get_length()
+            if progress > 1: progress = 1
+            if progress < 0: progress = 0
+            
+            position = segment.get_point(progress) # Centro della strada
+            heading = segment.get_heading(progress) # Direzione strada (radianti)
+
+            # --- DISEGNO STOP LINE ---
+            # Calcoliamo la perpendicolare per disegnare la linea di stop
+            # Larghezza linea (un po' più larga dell'auto, es. 4 metri)
+            line_width = 4.0 
+            
+            # Calcolo offset dx/dy per i due estremi della linea
+            # La perpendicolare è heading + 90 gradi (pi/2)
+            dx = (line_width / 2) * np.sin(heading)
+            dy = (line_width / 2) * np.cos(heading)
+            
+            # Punti della linea nel "Mondo"
+            # Nota: heading è l'angolo rispetto asse X. 
+            # Perpendicolare: (-sin, cos) o (sin, -cos)
+            
+            # Coordinate linea stop
+            p1_world = (position[0] - dx, position[1] + dy)
+            p2_world = (position[0] + dx, position[1] - dy)
+
+            # Disegniamo la linea di stop (Bianca se verde, Rossa se rosso per feedback visivo, o sempre Bianca)
+            # Facciamola sempre bianca per realismo, o gialla.
+            dpg.draw_line(p1_world, p2_world, color=(255, 255, 255), thickness=2*self.zoom, parent="Canvas")
+
+
+            # --- DISEGNO SEMAFORO (SFERA LATERALE) ---
+            node = dpg.add_draw_node(parent="Canvas")
+            
+            # Colore
+            color = (255, 0, 0) if tl.state == "red" else (0, 255, 0)
+            
+            # Trasformazioni per la sfera
+            translate = dpg.create_translation_matrix(position)
+            rotate = dpg.create_rotation_matrix(heading, [0, 0, 1])
+            dpg.apply_transform(node, translate * rotate)
+            
+            # Disegniamo la luce spostata a destra (es. y = -3.5 metri dal centro strada)
+            # Coordinate locali nel nodo ruotato: x=0 (sulla linea), y=-3.5 (a destra)
+            light_pos = (0, -3.5) 
+            radius = 6
+            
+            # Palo (linea nera dal centro strada al semaforo, opzionale, o solo cerchio)
+            # dpg.draw_line((0, -2), (0, -3.5), color=(0,0,0), thickness=1, parent=node)
+            
+            # Luce colorata
+            dpg.draw_circle(light_pos, radius, color=color, fill=color, parent=node)
+            # Bordo nero
+            dpg.draw_circle(light_pos, radius, color=(0,0,0), thickness=0.1*self.zoom, parent=node)
+
     def apply_transformation(self):
         screen_center = dpg.create_translation_matrix([self.canvas_width/2, self.canvas_height/2, -0.01])
         translate = dpg.create_translation_matrix(self.offset)
@@ -417,6 +477,7 @@ class Window:
         self.draw_segments()
         self.draw_static_objects()
         self.draw_obstacles() 
+        self.draw_traffic_lights()
         self.draw_vehicles()
 
         # Apply transformations

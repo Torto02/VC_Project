@@ -1,5 +1,6 @@
 from trafficSimulator.core.obstacle import Obstacle
 from trafficSimulator.core.static_object import StaticObject
+from trafficSimulator.core.traffic_light import TrafficLight
 from .vehicle_generator import VehicleGenerator
 from .geometry.quadratic_curve import QuadraticCurve
 from .geometry.cubic_curve import CubicCurve
@@ -16,6 +17,7 @@ class Simulation:
         self.vehicle_generator = []
         self.static_objects = [] 
         self.obstacles = []
+        self.traffic_lights = []
 
         self.t = 0.0
         self.frame_count = 0
@@ -61,6 +63,11 @@ class Simulation:
         # segment_id è l'indice numerico del segmento nella lista self.segments
         obs = Obstacle(segment_id, position, duration)
         self.obstacles.append(obs)
+    
+    def create_traffic_light(self, segment_id, position, cycle_time=5):
+        tl = TrafficLight(segment_id, position, cycle_time)
+        self.traffic_lights.append(tl)
+        return tl
 
     def run(self, steps):
         for _ in range(steps):
@@ -141,50 +148,69 @@ class Simulation:
 
         print(f"Nessun percorso trovato tra {start_id} e {end_id}")
         return []
-
+    
     def update(self):
-        # 1. Aggiorna e Rimuovi ostacoli scaduti
+        # 1. Aggiorna ostacoli e semafori
         for obs in self.obstacles:
             obs.update(self.dt)
+        for tl in self.traffic_lights:
+            tl.update(self.dt)
+            
+        # Rimuovi ostacoli scaduti (ma non i semafori, quelli restano!)
         self.obstacles = [obs for obs in self.obstacles if obs.active]
 
         # 2. Aggiorna veicoli
         for segment_index, segment in enumerate(self.segments):
-            # Troviamo gli ostacoli su QUESTO segmento
-            obstacles_on_segment = [obs for obs in self.obstacles if obs.segment_id == segment_index]
+            # Troviamo gli ostacoli su questo segmento
+            obs_on_segment = [obs for obs in self.obstacles if obs.segment_id == segment_index]
+            
+            # Troviamo i semafori ROSSI su questo segmento
+            lights_on_segment = [tl for tl in self.traffic_lights if tl.segment_id == segment_index and tl.is_active]
+            
+            # Uniamo tutto ciò che blocca la strada in un'unica lista "barriere"
+            # Entrambi gli oggetti (Obstacle e TrafficLight) hanno 'x' e devono essere trattati come fermi.
+            barriers = obs_on_segment + lights_on_segment
             
             for i, vehicle_id in enumerate(segment.vehicles):
                 vehicle = self.vehicles[vehicle_id]
-                
-                # Chi è il "lead" (davanti)?
                 lead = None
                 
-                # A. Controlliamo se c'è un veicolo davanti
+                # A. Veicolo davanti
                 if i > 0:
                     lead = self.vehicles[segment.vehicles[i-1]]
+                # B. Barriere (Ostacoli o Semafori Rossi)
+                # LOGICA CORRETTA:
+                # 1. Consideriamo la barriera solo se è davanti al MUSO del veicolo (vehicle.x + vehicle.l)
+                #    Se il muso ha già superato la linea (o toccata), la ignoriamo (passa col rosso se impegnato).
+                vehicle_front_pos = vehicle.x + vehicle.l
+                relevant_barriers = [b for b in barriers if b.x > vehicle_front_pos]
                 
-                # B. Controlliamo se c'è un ostacolo PIÙ VICINO del veicolo davanti
-                # Cerchiamo ostacoli che sono davanti al veicolo (obs.x > vehicle.x)
-                relevant_obstacles = [obs for obs in obstacles_on_segment if obs.x > vehicle.x]
-                
-                if relevant_obstacles:
-                    # Troviamo l'ostacolo più vicino
-                    closest_obs = min(relevant_obstacles, key=lambda o: o.x)
+                if relevant_barriers:
+                    # La barriera più vicina
+                    closest_barrier = min(relevant_barriers, key=lambda b: b.x)
                     
-                    # Se abbiamo già un veicolo davanti, vediamo chi è più vicino tra i due
+                    # TRUCCO PER L'IDM:
+                    # L'IDM calcola il gap come: lead.x - self.x - lead.l
+                    # Noi vogliamo che il gap sia: Distanza tra Muro e Muso.
+                    # Gap = Barrier.x - Vehicle.Front
+                    # Gap = Barrier.x - (Vehicle.x + Vehicle.l)
+                    # Gap = Barrier.x - Vehicle.x - Vehicle.l
+                    #
+                    # Quindi, se impostiamo la "lunghezza" della barriera uguale alla lunghezza del veicolo,
+                    # l'equazione IDM diventa perfetta per fermarsi col muso alla linea.
+                    
+                    closest_barrier.v = 0
+                    closest_barrier.l = vehicle.l # <--- PUNTO CHIAVE
+                    
+                    # Se c'è già un veicolo lead, vediamo se la barriera è prima
                     if lead:
-                        if closest_obs.x < lead.x:
-                            lead = closest_obs # L'ostacolo è più vicino, diventa il target
+                        if closest_barrier.x < lead.x:
+                            lead = closest_barrier
                     else:
-                        lead = closest_obs # Niente veicoli, solo l'ostacolo
+                        lead = closest_barrier
 
-                # Aggiorniamo il veicolo passandogli il target (veicolo o ostacolo)
                 vehicle.update(lead, self.dt)
-
-        # 3. Check veicoli fuori strada (codice esistente invariato)
-        # ... (copia qui la parte del ciclo 'Check roads for out of bounds vehicle' dal vecchio codice) ...
-        # ... (copia update vehicle generators e time increment) ...
-        
+                
         # --- (Riporto la parte finale per completezza) ---
         for segment in self.segments:
             if len(segment.vehicles) == 0: continue

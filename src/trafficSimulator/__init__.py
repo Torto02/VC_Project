@@ -10,3 +10,4 @@ from .visualizer.window import Window
 from .core.static_object import StaticObject
 from .core.config_loader import ConfigLoader
 from .core.obstacle import Obstacle
+from .core.traffic_light import TrafficLight
