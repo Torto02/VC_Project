@@ -1,3 +1,4 @@
+from trafficSimulator.core.intersection import Intersection
 from trafficSimulator.core.obstacle import Obstacle
 from trafficSimulator.core.static_object import StaticObject
 from trafficSimulator.core.traffic_light import TrafficLight
@@ -17,6 +18,7 @@ class Simulation:
         self.vehicle_generator = []
         self.static_objects = [] 
         self.obstacles = []
+        self.intersections = []
         self.traffic_lights = []
 
         self.t = 0.0
@@ -42,6 +44,7 @@ class Simulation:
     def create_segment(self, *args, **kwargs):
         seg = Segment(args, **kwargs)
         self.add_segment(seg)
+        return seg
 
     def create_quadratic_bezier_curve(self, start, control, end, **kwargs):
         cur = QuadraticCurve(start, control, end, **kwargs)
@@ -52,6 +55,20 @@ class Simulation:
         self.add_segment(cur)
 
     def create_vehicle_generator(self, **kwargs):
+        # Se nella configurazione ci sono veicoli definiti, controlliamo se serve calcolare il percorso
+        if 'vehicles' in kwargs:
+            for i, (weight, config) in enumerate(kwargs['vehicles']):
+                # Se mancano le istruzioni path, ma ci sono start_road e end_road
+                if 'path' not in config and 'start_road' in config and 'end_road' in config:
+                    try:
+                        # Calcoliamo il percorso usando la topologia attuale
+                        path = self.find_shortest_path(config['start_road'], config['end_road'])
+                        config['path'] = path
+                        print(f"Path calcolato per veicolo {config.get('vehicle_class', 'unknown')}: {path}")
+                    except Exception as e:
+                        print(f"Errore nel calcolo del percorso: {e}")
+                        config['path'] = []
+
         gen = VehicleGenerator(kwargs)
         self.add_vehicle_generator(gen)
 
@@ -64,10 +81,17 @@ class Simulation:
         obs = Obstacle(segment_id, position, duration)
         self.obstacles.append(obs)
     
-    def create_traffic_light(self, segment_id, position, cycle_time=5):
-        tl = TrafficLight(segment_id, position, cycle_time)
+    def create_traffic_light(self, segment_id, position, cycle_time=5, initial_state="red"):
+        # Passiamo initial_state al costruttore di TrafficLight
+        tl = TrafficLight(segment_id, position, cycle_time, initial_state)
         self.traffic_lights.append(tl)
         return tl
+    
+    def create_intersection(self, x, y, id_inter="", size=20):
+        # Nota: Non passiamo più **kwargs per ora per semplicità
+        inter = Intersection(self, x, y, id_inter, size)
+        self.intersections.append(inter)
+        return inter
 
     def run(self, steps):
         for _ in range(steps):
