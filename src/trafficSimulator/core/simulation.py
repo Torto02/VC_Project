@@ -195,38 +195,72 @@ class Simulation:
             # Entrambi gli oggetti (Obstacle e TrafficLight) hanno 'x' e devono essere trattati come fermi.
             barriers = obs_on_segment + lights_on_segment
             
+            # --- NUOVO: Rilevamento Incrocio e Precedenza ---
+            # Cerchiamo se questo segmento fa parte di un incrocio come "incoming"
+            parent_intersection = None
+            for inter in self.intersections:
+                # Usiamo l'oggetto segmento per trovarlo
+                if segment in inter.incoming_roads:
+                    parent_intersection = inter
+                    break
+            
+            intersection_barrier = None
+            
             for i, vehicle_id in enumerate(segment.vehicles):
                 vehicle = self.vehicles[vehicle_id]
+                
+                # Se c'è un incrocio alla fine di questa strada
+                if parent_intersection:
+                    # Controlliamo solo se siamo vicini alla fine (es. ultimi 15 metri)
+                    dist_to_end = segment.get_length() - vehicle.x
+                    
+                    if dist_to_end < 15:
+                        # Chiediamo all'incrocio se è libero
+                        is_clear = parent_intersection.check_clearance(vehicle, segment_index)
+                        
+                        if not is_clear:
+                            # Creiamo una barriera virtuale alla fine della strada
+                            # Creiamo un oggetto "dummy" che si comporta come un ostacolo
+                            class VirtualBarrier:
+                                def __init__(self, x):
+                                    self.x = x
+                                    self.v = 0
+                                    self.l = 0 # Puntiforme (o vehicle.l per stop line)
+                            
+                            # Posizione: fine strada
+                            intersection_barrier = VirtualBarrier(segment.get_length())
+                            
+                            # Per lo STOP, vogliamo fermarci col muso alla linea
+                            # Se è uno STOP sign, settiamo la lunghezza barrier = veicolo (come abbiamo fatto per semafori)
+                            if segment_index in parent_intersection.stop_signs:
+                                intersection_barrier.l = vehicle.l
+
+                # --- FINE NUOVO ---
+
+                # Calcolo Lead (chi sta davanti)
                 lead = None
                 
-                # A. Veicolo davanti
+                # 1. Veicolo davanti
                 if i > 0:
                     lead = self.vehicles[segment.vehicles[i-1]]
-                # B. Barriere (Ostacoli o Semafori Rossi)
-                # LOGICA CORRETTA:
-                # 1. Consideriamo la barriera solo se è davanti al MUSO del veicolo (vehicle.x + vehicle.l)
-                #    Se il muso ha già superato la linea (o toccata), la ignoriamo (passa col rosso se impegnato).
+                
+                # 2. Barriere Fisiche (Semafori/Ostacoli) - Codice precedente
                 vehicle_front_pos = vehicle.x + vehicle.l
                 relevant_barriers = [b for b in barriers if b.x > vehicle_front_pos]
                 
+                # 3. Barriera Virtuale Incrocio (Precedenza/Stop)
+                # Se esiste ed è davanti al muso, la aggiungiamo
+                if intersection_barrier and intersection_barrier.x > vehicle_front_pos:
+                    relevant_barriers.append(intersection_barrier)
+
+                # Trova la barriera più vicina
                 if relevant_barriers:
-                    # La barriera più vicina
                     closest_barrier = min(relevant_barriers, key=lambda b: b.x)
                     
-                    # TRUCCO PER L'IDM:
-                    # L'IDM calcola il gap come: lead.x - self.x - lead.l
-                    # Noi vogliamo che il gap sia: Distanza tra Muro e Muso.
-                    # Gap = Barrier.x - Vehicle.Front
-                    # Gap = Barrier.x - (Vehicle.x + Vehicle.l)
-                    # Gap = Barrier.x - Vehicle.x - Vehicle.l
-                    #
-                    # Quindi, se impostiamo la "lunghezza" della barriera uguale alla lunghezza del veicolo,
-                    # l'equazione IDM diventa perfetta per fermarsi col muso alla linea.
+                    # Logica stop line (l = vehicle.l) se non settata
+                    if not hasattr(closest_barrier, 'v'): closest_barrier.v = 0
+                    if not hasattr(closest_barrier, 'l'): closest_barrier.l = 0
                     
-                    closest_barrier.v = 0
-                    closest_barrier.l = vehicle.l # <--- PUNTO CHIAVE
-                    
-                    # Se c'è già un veicolo lead, vediamo se la barriera è prima
                     if lead:
                         if closest_barrier.x < lead.x:
                             lead = closest_barrier
@@ -234,6 +268,14 @@ class Simulation:
                         lead = closest_barrier
 
                 vehicle.update(lead, self.dt)
+                
+                # Pulizia per veicoli che hanno superato l'incrocio: rimuovere da "stopped_vehicles"
+                if parent_intersection and vehicle.id in parent_intersection.stopped_vehicles:
+                     # Se è passato all'altro segmento (non è più su questo), lo rimuoviamo
+                     # Ma qui siamo dentro il loop di QUESTO segmento. 
+                     # Se è ancora qui ma ha velocità > 2, vuol dire che è ripartito -> Reset
+                     if vehicle.v > 2:
+                         parent_intersection.stopped_vehicles.remove(vehicle.id)
                 
         # --- (Riporto la parte finale per completezza) ---
         for segment in self.segments:

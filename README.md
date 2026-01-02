@@ -151,6 +151,44 @@ Blocchi temporanei su un segmento stradale, utili per simulare incidenti o lavor
 sim.create_obstacle(0, 50, 200)
 ```
 
+### 7. Semafori (`TrafficLight`)
+
+È possibile aggiungere semafori manuali su specifici segmenti. I semafori alternano lo stato tra Rosso e Verde.
+
+```python
+# create_traffic_light(segment_id, position, cycle_time, initial_state)
+# segment_id: indice del segmento
+# position: posizione in metri
+# cycle_time: durata del ciclo (es. 10 secondi)
+sim.create_traffic_light(0, 90, cycle_time=10, initial_state="red")
+```
+
+### 8. Incroci Avanzati (`Intersection`)
+
+La classe `Intersection` permette di gestire incroci complessi con logiche di precedenza, stop e semafori automatici.
+
+```python
+# 1. Crea l'incrocio
+inter = sim.create_intersection(0, 0, id_inter="crossroad", size=20)
+
+# 2. Aggiungi strade (devono essere segmenti esistenti)
+inter.add_incoming(seg_south_in)
+inter.add_outgoing(seg_south_out)
+# ... aggiungi altre strade ...
+
+# 3. Configura regole
+# Aggiunge un segnale di STOP su una strada specifica
+inter.add_stop_sign(seg_south_in)
+
+# OPPURE: Configura semafori automatici su tutte le strade entranti
+# (Verde per asse verticale, Rosso per orizzontale, alternati)
+inter.set_traffic_lights(cycle_time=15)
+
+# 4. Costruisci connessioni interne
+# Genera automaticamente i segmenti di connessione interni all'incrocio
+inter.build()
+```
+
 ## Configurazione tramite JSON
 
 È possibile caricare un'intera simulazione da un file JSON usando `ConfigLoader`.

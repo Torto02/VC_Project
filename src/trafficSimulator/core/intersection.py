@@ -1,6 +1,6 @@
+import math
 from .geometry.segment import Segment
 from .geometry.quadratic_curve import QuadraticCurve
-import math
 
 class Intersection:
     def __init__(self, simulation, x, y, id_inter, size=20):
@@ -8,21 +8,23 @@ class Intersection:
         self.x = x
         self.y = y
         self.id = id_inter
-        self.size = size  # Raggio o dimensione dell'area dell'incrocio
+        self.size = size
         
-        # Liste di segmenti esterni collegati all'incrocio
-        # Struttura: {"id_strada": oggetto_segmento}
+        # Liste di segmenti esterni
         self.incoming_roads = []
         self.outgoing_roads = []
         
-        # Mappa dei percorsi interni generati
-        # self.paths[id_entrata][id_uscita] = oggetto_segmento_interno
+        # Mappa dei percorsi interni: self.paths[id_entrata][id_uscita] = segmento
         self.paths = {} 
+        
+        # --- Gestione Priorità e Stop ---
+        self.stop_signs = {}  # {segment_index: True}
+        self.priority_map = {} # {segment_index: [lista_indici_prioritari]}
+        self.stopped_vehicles = set() # {vehicle_id}
 
     def add_incoming(self, segment):
         """Registra una strada che ARRIVA all'incrocio"""
         self.incoming_roads.append(segment)
-        # Inizializza il dizionario per questo ingresso
         if segment.id_segment not in self.paths:
             self.paths[segment.id_segment] = {}
 
@@ -30,160 +32,149 @@ class Intersection:
         """Registra una strada che PARTE dall'incrocio"""
         self.outgoing_roads.append(segment)
 
-    def build(self):
-        """
-        Genera automaticamente le connessioni (curve/rette) tra 
-        tutte le strade in entrata e tutte le strade in uscita.
-        """
-        for road_in in self.incoming_roads:
-            for road_out in self.outgoing_roads:
-                # Evitiamo le inversioni a U sulla stessa via (opzionale)
-                # Se road_in e road_out sono "opposte" ma vicine, potremmo volerle escludere
-                # Per ora colleghiamo TUTTO a TUTTO.
-                
-                self._create_connection(road_in, road_out)
-
-    def _create_connection(self, road_in, road_out):
-        """Crea un segmento interno che collega la fine di road_in all'inizio di road_out"""
-        
-        # Punti di ancoraggio
-        p_start = road_in.points[-1] # Fine della strada in entrata
-        p_end = road_out.points[0]   # Inizio della strada in uscita
-        
-        # Calcoliamo l'angolo di ingresso e uscita per capire se è dritto o curva
-        # Vettore strada in entrata (ultimi due punti)
-        v_in = (road_in.points[-1][0] - road_in.points[-2][0], 
-                road_in.points[-1][1] - road_in.points[-2][1])
-        
-        # Vettore strada in uscita (primi due punti)
-        v_out = (road_out.points[1][0] - road_out.points[0][0], 
-                 road_out.points[1][1] - road_out.points[0][1])
-        
-        # Calcolo angoli
-        ang_in = math.atan2(v_in[1], v_in[0])
-        ang_out = math.atan2(v_out[1], v_out[0])
-        
-        diff = abs(ang_in - ang_out)
-        # Normalizziamo differenza
-        while diff > math.pi: diff -= 2*math.pi
-        while diff < -math.pi: diff += 2*math.pi
-        
-        # ID univoco per il segmento interno
-        # Es: "inter_X_from_STRADA1_to_STRADA2"
-        seg_id = f"{self.id}_from_{road_in.id_segment}_to_{road_out.id_segment}"
-        
-        # Se l'angolo è simile (vicino a 0), andiamo DRITTO con una linea
-        if abs(diff) < 0.1: 
-            self.sim.create_segment(p_start, p_end, category="intersection", id_segment=seg_id)
-        else:
-            # Altrimenti creiamo una CURVA
-            # Calcolo euristico del Control Point per la curva di Bezier
-            # Intersezione tra la retta uscente da P_start e la retta entrante in P_end (al contrario)
-            
-            # Per semplicità, usiamo una media pesata o il centro dell'incrocio come attrattore
-            # Un buon control point per curve a 90 gradi è l'angolo del quadrato.
-            # Qui usiamo un'approssimazione: prolunghiamo i vettori e vediamo dove si incontrano.
-            
-            # Controllo semplice: Centro dell'incrocio (self.x, self.y) + offset?
-            # Usiamo l'intersezione delle tangenti per una curva perfetta
-            control_point = self._calculate_intersection_point(p_start, ang_in, p_end, ang_out)
-            
-            # Se il calcolo fallisce (rette parallele), usiamo il punto medio
-            if control_point is None:
-                 control_point = ((p_start[0]+p_end[0])/2, (p_start[1]+p_end[1])/2)
-
-            self.sim.create_quadratic_bezier_curve(p_start, control_point, p_end, category="intersection", id_segment=seg_id)
-        
-        # Registriamo il segmento creato
-        new_segment = self.sim.segments[-1]
-        self.paths[road_in.id_segment][road_out.id_segment] = new_segment
-
-    def _calculate_intersection_point(self, p1, theta1, p2, theta2):
-        """Trova l'intersezione tra due rette definite da punto e angolo"""
-        # Rette: y - y0 = m(x - x0)  ->  -mx + y = y0 - mx0
-        # Ma dobbiamo gestire le linee verticali.
-        
-        sin1, cos1 = math.sin(theta1), math.cos(theta1)
-        sin2, cos2 = math.sin(theta2 - math.pi), math.cos(theta2 - math.pi) # Retta 2 va all'indietro per trovare l'angolo
-
-        # Usiamo geometria vettoriale. 
-        # P = p1 + t * v1
-        # Q = p2 + u * v2
-        # Vogliamo P = Q
-        
-        # Questo è complesso per un forum. Usiamo un'euristica robusta:
-        # Il control point è l'angolo del rettangolo che racchiude start e end, 
-        # scelto in base alla direzione.
-        
-        # Oppure, semplicemente estendiamo p1 nella sua direzione e p2 nella sua direzione opposta
-        # finché non si incontrano.
-        
-        # Semplificazione estrema che funziona spesso negli incroci urbani:
-        # Se svolta a DESTRA o SINISTRA, il control point è "l'angolo".
-        # Control Point x = p_end.x se p1 è orizzontale, p1.x se p1 è verticale...
-        
-        # Proviamo l'intersezione vera (Cramer)
-        # Retta 1: a1*x + b1*y = c1
-        # m = tan(theta). -sin*x + cos*y = -sin*x0 + cos*y0
-        a1, b1 = -sin1, cos1
-        c1 = a1*p1[0] + b1*p1[1]
-        
-        # Retta 2 (tangente all'arrivo): Angolo è theta2 + 180 (perché entra)
-        a2, b2 = -math.sin(theta2), math.cos(theta2)
-        c2 = a2*p2[0] + b2*p2[1] # Nota: usiamo tangente in arrivo, quindi stessa retta di road_out
-        
-        det = a1*b2 - a2*b1
-        if abs(det) < 1e-5: return None # Parallele
-        
-        cx = (c1*b2 - c2*b1) / det
-        cy = (a1*c2 - a2*c1) / det
-        return (cx, cy)
-    
+    def add_stop_sign(self, road):
+        """Aggiunge un segnale di STOP alla strada specificata"""
+        try:
+            seg_index = self.sim.segments.index(road)
+            self.stop_signs[seg_index] = True
+        except ValueError:
+            print(f"Warning: Road {road.id_segment} not found in simulation.")
 
     def set_traffic_lights(self, cycle_time=10):
-        """
-        Aggiunge automaticamente semafori alle strade in ingresso.
-        Gestisce le fasi:
-        - Gruppo Verticale (Nord/Sud): Fase 1 Verde, Fase 2 Rosso
-        - Gruppo Orizzontale (Est/Ovest): Fase 1 Rosso, Fase 2 Verde
-        """
+        """Aggiunge semafori automatici (Verde Nord-Sud, Rosso Est-Ovest)"""
         vertical_roads = []
         horizontal_roads = []
 
         for road in self.incoming_roads:
-            # Calcoliamo l'angolo della strada (dagli ultimi due punti)
             p1 = road.points[-2]
             p2 = road.points[-1]
             angle = math.atan2(p2[1] - p1[1], p2[0] - p1[0])
             
-            # Se il seno è dominante, è verticale (angolo vicino a 90° o 270°)
-            # Se il coseno è dominante, è orizzontale (angolo vicino a 0° o 180°)
             if abs(math.sin(angle)) > abs(math.cos(angle)):
                 vertical_roads.append(road)
             else:
                 horizontal_roads.append(road)
 
-        # Creazione Semafori Verticali (Partono VERDI)
         for road in vertical_roads:
             self._add_light_to_road(road, cycle_time, "green")
-
-        # Creazione Semafori Orizzontali (Partono ROSSI)
         for road in horizontal_roads:
             self._add_light_to_road(road, cycle_time, "red")
 
     def _add_light_to_road(self, road, cycle_time, initial_state):
-        # Posizioniamo il semaforo 2 metri prima della fine della strada
         pos = road.get_length() - 2
         if pos < 0: pos = 0
-        
-        # Dobbiamo trovare l'indice numerico del segmento nella simulazione
         try:
             seg_index = self.sim.segments.index(road)
-            self.sim.create_traffic_light(
-                segment_id=seg_index,
-                position=pos,
-                cycle_time=cycle_time,
-                initial_state=initial_state
-            )
+            self.sim.create_traffic_light(seg_index, pos, cycle_time, initial_state)
         except ValueError:
-            print(f"Errore: La strada {road.id_segment} non è nella lista segmenti della simulazione.")
+            pass
+
+    def build(self):
+        """Genera le connessioni interne"""
+        for road_in in self.incoming_roads:
+            for road_out in self.outgoing_roads:
+                self._create_connection(road_in, road_out)
+
+    def _create_connection(self, road_in, road_out):
+        p_start = road_in.points[-1]
+        p_end = road_out.points[0]
+        
+        v_in = (road_in.points[-1][0] - road_in.points[-2][0], 
+                road_in.points[-1][1] - road_in.points[-2][1])
+        v_out = (road_out.points[1][0] - road_out.points[0][0], 
+                 road_out.points[1][1] - road_out.points[0][1])
+        
+        ang_in = math.atan2(v_in[1], v_in[0])
+        ang_out = math.atan2(v_out[1], v_out[0])
+        
+        diff = abs(ang_in - ang_out)
+        while diff > math.pi: diff -= 2*math.pi
+        while diff < -math.pi: diff += 2*math.pi
+        
+        seg_id = f"{self.id}_from_{road_in.id_segment}_to_{road_out.id_segment}"
+        
+        if abs(diff) < 0.1: 
+            self.sim.create_segment(p_start, p_end, category="intersection", id_segment=seg_id)
+        else:
+            control_point = ((p_start[0]+p_end[0])/2, (p_start[1]+p_end[1])/2)
+            # Logica semplice: se è una svolta a destra o sinistra, spostiamo il control point
+            # Per ora il punto medio funziona decentemente come approssimazione
+            self.sim.create_quadratic_bezier_curve(p_start, control_point, p_end, category="intersection", id_segment=seg_id)
+        
+        new_segment = self.sim.segments[-1]
+        self.paths[road_in.id_segment][road_out.id_segment] = new_segment
+
+    def _get_road_angle(self, road):
+        p1 = road.points[-2]
+        p2 = road.points[-1]
+        return math.atan2(p2[1] - p1[1], p2[0] - p1[0])
+
+    def calculate_priorities(self):
+        """Costruisce la mappa delle precedenze"""
+        for road_a in self.incoming_roads:
+            try:
+                idx_a = self.sim.segments.index(road_a)
+            except ValueError:
+                continue
+
+            angle_a = self._get_road_angle(road_a)
+            self.priority_map[idx_a] = []
+
+            # CASO 1: Ho lo STOP -> Precedenza a tutti
+            if idx_a in self.stop_signs:
+                for road_b in self.incoming_roads:
+                    if road_a == road_b: continue
+                    try:
+                        idx_b = self.sim.segments.index(road_b)
+                        self.priority_map[idx_a].append(idx_b)
+                    except ValueError:
+                        continue
+                continue
+
+            # CASO 2: Non ho STOP -> Precedenza a destra
+            for road_b in self.incoming_roads:
+                if road_a == road_b: continue
+                try:
+                    idx_b = self.sim.segments.index(road_b)
+                    
+                    # Se l'altro ha STOP, lo ignoro (lui aspetta me)
+                    if idx_b in self.stop_signs:
+                        continue
+
+                    angle_b = self._get_road_angle(road_b)
+                    
+                    diff = angle_a - angle_b
+                    while diff > math.pi: diff -= 2*math.pi
+                    while diff <= -math.pi: diff += 2*math.pi
+                    
+                    # Se diff è positivo (~PI/2), B è alla mia destra
+                    if 0.5 < diff < 2.5:
+                        self.priority_map[idx_a].append(idx_b)
+
+                except ValueError:
+                    continue
+
+    def check_clearance(self, vehicle, segment_index):
+        # 1. STOP SIGN
+        if segment_index in self.stop_signs:
+            if vehicle.id not in self.stopped_vehicles:
+                if vehicle.v < 0.5:
+                     self.stopped_vehicles.add(vehicle.id)
+                     # Si è fermato, ora controlla se è libero
+                else:
+                    return False # Deve ancora fermarsi
+        
+        # 2. Controllo Strade Prioritarie
+        priority_segments = self.priority_map.get(segment_index, [])
+        scan_distance = 40 
+        
+        for other_idx in priority_segments:
+            other_seg = self.sim.segments[other_idx]
+            for veh_id in other_seg.vehicles:
+                other_veh = self.sim.vehicles[veh_id]
+                dist_to_inter = other_seg.get_length() - other_veh.x
+                
+                if dist_to_inter < scan_distance and other_veh.v > 0.5:
+                    return False # Qualcuno sta arrivando da una strada prioritaria
+                    
+        return True

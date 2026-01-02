@@ -311,7 +311,6 @@ class Window:
             rotate = dpg.create_rotation_matrix(h, [0, 0, 1])
             dpg.apply_transform(arrow_node, translate * rotate)
 
-
     def draw_vehicles(self):
         for segment in self.simulation.segments:
             for vehicle_id in segment.vehicles:
@@ -453,12 +452,41 @@ class Window:
             # Bordo nero
             dpg.draw_circle(light_pos, radius, color=(0,0,0), thickness=0.1*self.zoom, parent=node)
 
+    def draw_stop_signs(self):
+        for inter in self.simulation.intersections:
+            for seg_idx, has_stop in inter.stop_signs.items():
+                if not has_stop: continue
+                
+                segment = self.simulation.segments[seg_idx]
+                
+                # Posizione: Fine strada
+                length = segment.get_length()
+                pos = segment.get_point(1.0) # Fine (t=1.0)
+                heading = segment.get_heading(1.0)
+                
+                node = dpg.add_draw_node(parent="Canvas")
+                
+                translate = dpg.create_translation_matrix(pos)
+                rotate = dpg.create_rotation_matrix(heading, [0, 0, 1])
+                dpg.apply_transform(node, translate * rotate)
+                
+                # Disegna linea di arresto a terra
+                dpg.draw_line((0, 2), (0, -2), color=(255, 255, 255), thickness=2*self.zoom, parent=node)
+                
+                # Disegna Ottagono STOP a lato (es. a destra y=-3)
+                center = (-2, -3.5) # Un po' prima della linea, a destra
+                size = 0.8
+                
+                # Ottagono approssimato o cerchio rosso
+                dpg.draw_circle(center, size, color=(200, 0, 0), fill=(200, 0, 0), parent=node)
+                # Testo S (semplificato, o solo simbolo rosso)
+                dpg.draw_text((center[0]-0.4, center[1]-0.4), "STOP", size=size*self.zoom, color=(255,255,255), parent=node)
+
     def apply_transformation(self):
         screen_center = dpg.create_translation_matrix([self.canvas_width/2, self.canvas_height/2, -0.01])
         translate = dpg.create_translation_matrix(self.offset)
         scale = dpg.create_scale_matrix([self.zoom, self.zoom])
         dpg.apply_transform("Canvas", screen_center*scale*translate)
-
 
     def render_loop(self):
         # Events
@@ -476,8 +504,9 @@ class Window:
         self.draw_grid(unit=50)
         self.draw_segments()
         self.draw_static_objects()
-        self.draw_obstacles() 
+        self.draw_obstacles()
         self.draw_traffic_lights()
+        self.draw_stop_signs() # <--- AGGIUNGI QUI
         self.draw_vehicles()
 
         # Apply transformations
